@@ -1,0 +1,4 @@
+# elan-fp-fix: disable USB autosuspend for the Elan 04f3:0c6e fingerprint
+# sensor. The libfprint "elan" driver misbehaves when the device autosuspends
+# between operations.
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="04f3", ATTR{idProduct}=="0c6e", ATTR{power/control}="on"
