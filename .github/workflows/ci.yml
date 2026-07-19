@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: shellcheck -S style install.sh diagnose.sh
+
+      - name: bash syntax check
+        run: bash -n install.sh diagnose.sh
+
+      - name: scripts are executable
+        run: test -x install.sh && test -x diagnose.sh
