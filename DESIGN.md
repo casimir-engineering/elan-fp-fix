@@ -18,10 +18,25 @@ no PPAs).
 
 ## Scope
 
-**No driver code.** This repo makes the existing driver reliable and turns
-setup into one command. If flakiness survives the autosuspend + config fixes,
-a patched-driver stage 2 (out-of-tree TOD plugin / patched libfprint) can be
-added later — the layout leaves room for it.
+Two stages (stage 2 added 2026-07-19 after live testing):
+
+**Stage 1 — `install.sh`:** udev autosuspend fix + fprintd/PAM setup, one
+command. This fixed device flakiness (overheat-disable, mid-enroll
+disconnects) but NOT matching.
+
+**Stage 2 — `install-driver.sh`:** live testing showed verify always returns
+no-match (0/3). Root cause (confirmed against upstream sources and issues
+#401/#732/#814): 0c6e is a press-type imaging sensor misassigned to the
+`elan` swipe driver since 2021; it has never matched for anyone; it is not
+match-on-chip, so elanmoc is not an option. Fix: build libfprint from
+github.com/filip-rs/libfprint branch `elanpress` (pinned commit 34fc394,
+security-reviewed 2026-07-19: memory-safe, no malicious code, FAR
+unbenchmarked) — a dedicated press driver using ZNCC image correlation.
+Installed to /usr/local (ldconfig shadowing), manifest-tracked, fully
+revertible; built in Docker matching the host distro when available.
+
+Out of scope: Windows-style power-button pre-boot capture (vendor firmware,
+undocumented, no libfprint support — researched 2026-07-19).
 
 ## Components
 
