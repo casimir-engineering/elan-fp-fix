@@ -7,7 +7,7 @@ UDEV_RULE="/etc/udev/rules.d/60-elan-fp-autosuspend.rules"
 
 usage() {
     cat <<'EOF'
-Usage: diagnose.sh [--verify-loop N] [--any-elan] [--help]
+Usage: diagnose.sh [--verify-loop N] [--any-elan] [--reenum] [--help]
 
 Collects diagnostics for the Elan 04f3:0c6e fingerprint sensor and writes a
 report to ./elan-fp-report-<hostname>-<timestamp>.txt (also shown on screen).
@@ -17,12 +17,16 @@ Options:
                     (requires an enrolled finger and your touches)
   --any-elan        widen detection to any 04f3 device whose product string
                     contains "Fingerprint"
+  --reenum          re-enumerate the sensor (USB unbind/bind) and exit; this
+                    recovers a wedged sensor that stops reacting to touches
+                    (requires root: sudo ./diagnose.sh --reenum)
   --help            show this help and exit
 EOF
 }
 
 VERIFY_LOOP=0
 ANY_ELAN=0
+REENUM=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -36,6 +40,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --any-elan)
             ANY_ELAN=1
+            shift
+            ;;
+        --reenum)
+            REENUM=1
             shift
             ;;
         --help)
@@ -67,6 +75,34 @@ find_sensor() {
 }
 
 section() { printf '\n===== %s =====\n' "$1"; }
+
+# Recover a wedged sensor: after interrupted captures the device keeps ACKing
+# commands but its frames stop reacting to the finger. A libusb/usbfs reset is
+# not enough — only a full unbind/bind (re-enumeration) brings it back.
+reenumerate() {
+    local sensor port
+    sensor=$(find_sensor)
+    if [[ -z "$sensor" ]]; then
+        echo "✖ no Elan fingerprint sensor found — nothing to re-enumerate" >&2
+        return 2
+    fi
+    if [[ $EUID -ne 0 ]]; then
+        echo "✖ re-enumeration needs root — run: sudo ./diagnose.sh --reenum" >&2
+        return 1
+    fi
+    port=$(basename "$sensor")
+    echo "→ re-enumerating $port (USB unbind/bind)..."
+    echo "$port" > /sys/bus/usb/drivers/usb/unbind
+    sleep 2
+    echo "$port" > /sys/bus/usb/drivers/usb/bind
+    sleep 1
+    if [[ -n "$(find_sensor)" ]]; then
+        echo "✔ sensor re-enumerated ($port)"
+    else
+        echo "✖ sensor did not come back after unbind/bind — check lsusb / dmesg" >&2
+        return 2
+    fi
+}
 
 show_sysfs_attr() {
     # show_sysfs_attr <sensor-path> <relative-attr>
@@ -177,7 +213,10 @@ main() {
                 fi
             done
             printf '✔ verify success rate: %d/%d\n' "$pass" "$VERIFY_LOOP"
-            if [[ "$pass" -lt "$VERIFY_LOOP" ]]; then
+            if [[ "$pass" -eq 0 ]]; then
+                echo "! every attempt failed — the sensor may be wedged (ignoring touches);"
+                echo "  try re-enumerating it: sudo ./diagnose.sh --reenum"
+            elif [[ "$pass" -lt "$VERIFY_LOOP" ]]; then
                 echo "! verification is not 100% reliable — check sections 3 and 6 above"
             fi
         fi
@@ -186,6 +225,11 @@ main() {
     printf '\n→ report saved to: %s\n' "$REPORT"
     return "$exit_code"
 }
+
+if [[ "$REENUM" -eq 1 ]]; then
+    reenumerate
+    exit $?
+fi
 
 REPORT="./elan-fp-report-$(hostname)-$(date +%Y%m%d-%H%M%S).txt"
 
