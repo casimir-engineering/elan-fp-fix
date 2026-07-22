@@ -4,13 +4,16 @@
 #
 # The stock libfprint drives 0c6e as a swipe sensor and has never matched a
 # finger on it (upstream issues #401/#732). This installs libfprint built from
-# github.com/filip-rs/libfprint branch "elanpress" (pinned commit) into
-# /usr/local, shadowing the distro library via ldconfig. Nothing dpkg-owned is
-# touched; --uninstall restores the distro library exactly.
+# github.com/filip-rs/libfprint branch "elanpress" (pinned commit) with this
+# repo's driver/elanpress.{c,h} overlaid (fw 8.00 support — see driver/README.md)
+# into /usr/local, shadowing the distro library via ldconfig. Nothing dpkg-owned
+# is touched; --uninstall restores the distro library exactly.
 set -euo pipefail
 
 ELANPRESS_REPO="https://github.com/filip-rs/libfprint.git"
 ELANPRESS_COMMIT="34fc394bd912918ddd6e05838c2d5cce1e91109f"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DRIVER_OVERLAY_DIR="$SCRIPT_DIR/driver"
 PREFIX="/usr/local"
 MANIFEST_DIR="$PREFIX/share/elan-fp-fix"
 MANIFEST="$MANIFEST_DIR/driver-manifest.txt"
@@ -95,6 +98,15 @@ fetch_source() {
     echo "→ fetching libfprint elanpress @ ${ELANPRESS_COMMIT:0:12}"
     git -C "$WORKDIR" fetch -q --depth 1 origin "$ELANPRESS_COMMIT"
     git -C "$WORKDIR" checkout -q "$ELANPRESS_COMMIT"
+
+    # Overlay this repo's patched driver (fw 8.00 support, see driver/README.md)
+    if [[ ! -f "$DRIVER_OVERLAY_DIR/elanpress.c" || ! -f "$DRIVER_OVERLAY_DIR/elanpress.h" ]]; then
+        echo "✖ missing $DRIVER_OVERLAY_DIR/elanpress.{c,h} — incomplete checkout?" >&2
+        exit 1
+    fi
+    echo "→ overlaying patched elanpress driver from $DRIVER_OVERLAY_DIR"
+    cp "$DRIVER_OVERLAY_DIR/elanpress.c" "$DRIVER_OVERLAY_DIR/elanpress.h" \
+        "$WORKDIR/libfprint/drivers/"
 }
 
 MESON_ARGS=(--prefix="$PREFIX" --libdir=lib/x86_64-linux-gnu
@@ -106,13 +118,17 @@ build_in_docker() {
     # shellcheck disable=SC1091
     image="ubuntu:$(. /etc/os-release && echo "${VERSION_ID:-latest}")"
     echo "→ building in Docker ($image)"
-    docker run --rm -v "$WORKDIR:/src" -w /src "$image" bash -ec "
+    # seccomp=unconfined: under Docker's default seccomp profile, apt 3.x
+    # (ubuntu 25.10) balloons to tens of GB and never finishes (LP#2133030);
+    # the container only compiles pinned sources, so this is acceptable
+    docker run --rm --security-opt seccomp=unconfined -v "$WORKDIR:/src" -w /src "$image" bash -ec "
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -q >/dev/null
-        apt-get install -yq git meson ninja-build gcc pkg-config \
-            libglib2.0-dev libgusb-dev libnss3-dev libpixman-1-dev \
-            libgudev-1.0-dev libcairo2-dev libgirepository1.0-dev \
-            libssl-dev >/dev/null
+        apt-get install -yq --no-install-recommends git meson ninja-build \
+            gcc pkg-config libglib2.0-dev \
+            libgusb-dev libnss3-dev libpixman-1-dev \
+            libgudev-1.0-dev libcairo2-dev \
+            libgirepository1.0-dev libssl-dev >/dev/null
         meson setup builddir ${MESON_ARGS[*]} >/dev/null
         ninja -C builddir >/dev/null
         DESTDIR=/src/stage ninja -C builddir install >/dev/null

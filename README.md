@@ -14,8 +14,9 @@ Two stages:
    ([upstream issue #401](https://gitlab.freedesktop.org/libfprint/libfprint/-/issues/401)).
    This script builds libfprint with the community
    [`elanpress` driver](https://github.com/filip-rs/libfprint/tree/elanpress)
-   (pinned commit, security-reviewed) and installs it to `/usr/local` without
-   touching any distro-owned file.
+   (pinned commit, security-reviewed) plus this repo's patches for firmware
+   8.00 sensors (see [`driver/README.md`](driver/README.md)), and installs it
+   to `/usr/local` without touching any distro-owned file.
 
 ## Quick start
 
@@ -71,6 +72,7 @@ sudo ./install.sh --silent           # without PAM changes
 |------|-------------|
 | `--verify-loop N` | Run `fprintd-verify` N times and report the success rate (requires an enrolled finger). |
 | `--any-elan` | Same detection widening as install.sh. |
+| `--reenum` | Re-enumerate the sensor (USB unbind/bind) to recover it when it stops reacting to touches. Requires root. |
 | `--help` | Show usage. |
 
 ## How it works
@@ -121,6 +123,19 @@ re-enroll after installing.
 finger during the power-on press. That flow is armed by vendor firmware and
 has never been reverse-engineered; no Linux support exists. The Linux flow is:
 boot → login screen → press the sensor once.
+
+## Turning fingerprint login on and off
+
+Fingerprint authentication activates automatically for any user who has a
+finger enrolled, and stays off for everyone else:
+
+- **Enable:** enroll a finger — GNOME Settings → Users → Fingerprint Login,
+  or `fprintd-enroll`. Login, unlock, and `sudo` then accept a touch, with
+  password always available as fallback.
+- **Disable:** delete your enrolled fingers — same Settings panel, or
+  `fprintd-delete "$USER"`. No prints, no fingerprint prompt.
+- **Disable system-wide:** `sudo ./install.sh --uninstall` reverts the PAM
+  change (enrolled prints are kept unless you add `--remove-prints`).
 
 ## Supported distros
 
