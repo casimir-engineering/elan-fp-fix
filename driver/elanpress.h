@@ -39,8 +39,10 @@
 #define ELANPRESS_FRAME_TIMEOUT 2000
 
 /* interval between finger presence polls; also gives the armed exposure
- * time to integrate before the frame is fetched (see poll cycle notes) */
-#define ELANPRESS_POLL_INTERVAL_MS 150
+ * time to integrate before the frame is fetched (see poll cycle notes).
+ * Verified on fw 8.00: finger frames still read at full contrast with 60 ms
+ * between polls (~85 ms real cycle including the USB transfers) */
+#define ELANPRESS_POLL_INTERVAL_MS 60
 
 /* Finger presence is detected from the frames themselves: a resting finger
  * raises the frame mean well above the background (observed: background
@@ -53,15 +55,22 @@
 #define ELANPRESS_FINGER_ON_DELTA  250
 #define ELANPRESS_FINGER_OFF_DELTA 120
 
-/* fw 8.00 interleaves a background-level frame between good exposures even
- * while the finger rests on the sensor, so a single low frame does not mean
- * the finger lifted: require this many consecutive low frames */
-#define ELANPRESS_FINGER_OFF_POLLS 2
+/* fw 8.00 interleaves background-level frames between good exposures even
+ * while the finger rests on the sensor (the exposure needs ~100 ms to
+ * recharge, so at the 60 ms poll rate they can come in pairs), so a couple
+ * of low frames do not mean the finger lifted: require this many consecutive
+ * low frames (~330 ms) before treating the touch as over */
+#define ELANPRESS_FINGER_OFF_POLLS 4
 
 /* frames captured per touch; the finger is static so these only serve to
  * average out noise */
 #define ELANPRESS_MIN_FRAMES 3
 #define ELANPRESS_MAX_FRAMES 10
+
+/* verify/identify complete as soon as this many frames are captured, without
+ * waiting for the finger to lift: waiting costs the user most of a second of
+ * perceived latency and the match works on the averaged frames anyway */
+#define ELANPRESS_VERIFY_FRAMES 4
 
 /* number of touches stored during enrollment */
 #define ELANPRESS_ENROLL_STAGES 8

@@ -413,6 +413,17 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
       self->frames = g_slist_prepend (self->frames,
                                       g_steal_pointer (&self->pending_frame));
       self->num_frames++;
+
+      /* verify/identify: don't make the user wait for the lift, match as
+       * soon as we have enough frames (enrollment keeps collecting for
+       * image diversity, and its clear phase handles the resting finger) */
+      if (fpi_device_get_current_action (dev) != FPI_DEVICE_ACTION_ENROLL &&
+          self->num_frames >= ELANPRESS_VERIFY_FRAMES)
+        {
+          fpi_ssm_mark_completed (ssm);
+          break;
+        }
+
       if (self->num_frames >= ELANPRESS_MAX_FRAMES)
         fpi_ssm_mark_completed (ssm);
       else
