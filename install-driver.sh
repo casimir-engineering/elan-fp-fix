@@ -8,6 +8,10 @@
 # repo's driver/elanpress.{c,h} overlaid (fw 8.00 support — see driver/README.md)
 # into /usr/local, shadowing the distro library via ldconfig. Nothing dpkg-owned
 # is touched; --uninstall restores the distro library exactly.
+#
+# Builds on the host by default, installing build dependencies through the
+# distro package manager when missing. --docker keeps the build (and its
+# dependencies) inside a container instead.
 set -euo pipefail
 
 ELANPRESS_REPO="https://github.com/filip-rs/libfprint.git"
@@ -24,15 +28,16 @@ usage() {
 Usage: sudo ./install-driver.sh [OPTIONS]
 
 Build and install a patched libfprint (elanpress driver) for the Elan
-04f3:0c6e press-type fingerprint sensor. Builds inside Docker when available
-(recommended), otherwise directly on the host.
+04f3:0c6e press-type fingerprint sensor. Builds on the host, installing the
+build dependencies through your package manager when they are missing
+(apt/dnf/pacman/zypper). No Docker required.
 
 Options:
   --uninstall   Remove the patched library from /usr/local and restore the
                 distro libfprint. Enrolled prints are kept (but prints made
                 with elanpress are not readable by the stock driver).
-  --host-build  Force building on the host even if Docker is available
-                (requires meson/ninja and libfprint dev packages).
+  --docker      Build inside a Docker container instead of on the host
+                (keeps build dependencies off the system; needs docker).
   --help        Show this help and exit.
 
 Exit codes: 0 success, 1 generic failure, 3 missing build tool.
@@ -40,12 +45,14 @@ EOF
 }
 
 UNINSTALL=false
-HOST_BUILD=false
+DOCKER_BUILD=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --uninstall) UNINSTALL=true ;;
-        --host-build) HOST_BUILD=true ;;
+        --docker) DOCKER_BUILD=true ;;
+        # accepted for backwards compatibility: host build is the default now
+        --host-build) ;;
         --help | -h)
             usage
             exit 0
@@ -135,24 +142,73 @@ build_in_docker() {
     "
 }
 
+# Returns 0 when a build tool or a library libfprint needs is missing.
+host_deps_missing() {
+    local tool pc
+    for tool in git meson ninja gcc pkg-config; do
+        command -v "$tool" >/dev/null 2>&1 || return 0
+    done
+    for pc in glib-2.0 gusb nss pixman-1 gudev-1.0 cairo openssl; do
+        pkg-config --exists "$pc" || return 0
+    done
+    return 1
+}
+
+install_build_deps() {
+    if ! host_deps_missing; then
+        echo "→ build dependencies already present"
+        return 0
+    fi
+    echo "→ installing build dependencies"
+    if command -v apt-get >/dev/null 2>&1; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
+            git meson ninja-build gcc pkg-config \
+            libglib2.0-dev libgusb-dev libnss3-dev libpixman-1-dev \
+            libgudev-1.0-dev libcairo2-dev libgirepository1.0-dev libssl-dev
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y \
+            git meson ninja-build gcc pkgconf-pkg-config \
+            glib2-devel libgusb-devel nss-devel pixman-devel \
+            libgudev-devel cairo-devel gobject-introspection-devel openssl-devel
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -S --needed --noconfirm \
+            git meson ninja gcc pkgconf \
+            glib2 libgusb nss pixman libgudev cairo gobject-introspection openssl
+    elif command -v zypper >/dev/null 2>&1; then
+        zypper install -y \
+            git meson ninja gcc pkg-config \
+            glib2-devel libgusb-devel mozilla-nss-devel pixman-devel \
+            libgudev-devel cairo-devel gobject-introspection-devel libopenssl-devel
+    else
+        echo "✖ unknown package manager — install these and re-run:" >&2
+        echo "  git meson ninja gcc pkg-config + dev packages for:" >&2
+        echo "  glib-2.0 gusb nss pixman-1 gudev-1.0 cairo openssl" >&2
+        exit 3
+    fi
+    if host_deps_missing; then
+        echo "✖ build dependencies still missing after the install — see above" >&2
+        exit 3
+    fi
+}
+
 build_on_host() {
     echo "→ building on host"
-    for tool in meson ninja gcc pkg-config; do
-        command -v "$tool" >/dev/null 2>&1 || {
-            echo "✖ missing build tool: $tool (install meson ninja-build gcc pkg-config and libfprint build deps)" >&2
-            exit 3
-        }
-    done
     (cd "$WORKDIR" &&
         meson setup builddir "${MESON_ARGS[@]}" >/dev/null &&
         ninja -C builddir >/dev/null &&
         DESTDIR="$WORKDIR/stage" ninja -C builddir install >/dev/null)
 }
 
+if "$DOCKER_BUILD" && ! command -v docker >/dev/null 2>&1; then
+    echo "✖ --docker requested but docker is not installed" >&2
+    exit 3
+fi
+
 fetch_source
-if ! "$HOST_BUILD" && command -v docker >/dev/null 2>&1; then
+if "$DOCKER_BUILD"; then
     build_in_docker
 else
+    install_build_deps
     build_on_host
 fi
 

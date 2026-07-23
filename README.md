@@ -29,8 +29,10 @@ fprintd-enroll             # press (don't swipe) the sensor repeatedly
 ```
 
 Both installers are idempotent — safe to re-run at any time. Stage 2 builds
-inside Docker when available (matching your distro's image), otherwise on the
-host (needs meson/ninja and libfprint's dev packages).
+on the host, installing the build dependencies through your package manager
+(apt/dnf/pacman/zypper) when they are missing — no Docker needed. Pass
+`--docker` to build inside a container instead and keep the build
+dependencies off your system.
 
 ## Silent install
 
@@ -63,7 +65,7 @@ sudo ./install.sh --silent           # without PAM changes
 | Flag | Description |
 |------|-------------|
 | `--uninstall` | Remove the patched library from `/usr/local` (via install manifest) and restore the distro libfprint. |
-| `--host-build` | Build on the host even if Docker is available. |
+| `--docker` | Build inside a Docker container instead of on the host (keeps build dependencies off the system). |
 | `--help` | Show usage. |
 
 ### diagnose.sh
@@ -107,11 +109,11 @@ issues #401, #732, #759, #814). The `elanpress` driver treats it as what it
 is: it stores several processed touch images at enrollment and matches with
 normalized cross-correlation, like the Windows driver does.
 
-`install-driver.sh` pins the exact reviewed commit, builds it reproducibly
-(Docker image matching your distro), stages the install, records a manifest,
-and shadows the distro library via `/usr/local` + `ldconfig`. Distro packages
-stay untouched and keep updating; `--uninstall` restores stock behavior
-exactly.
+`install-driver.sh` pins the exact reviewed commit, overlays this repo's
+patched driver, builds on the host (or in a Docker container matching your
+distro with `--docker`), stages the install, records a manifest, and shadows
+the distro library via `/usr/local` + `ldconfig`. Distro packages stay
+untouched and keep updating; `--uninstall` restores stock behavior exactly.
 
 **Security note:** the elanpress matcher's false-accept rate has not been
 formally benchmarked (the same reason similar approaches are still unmerged
