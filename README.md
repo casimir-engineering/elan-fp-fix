@@ -52,7 +52,7 @@ sudo ./install.sh --silent           # without PAM changes
 | Flag | Description |
 |------|-------------|
 | `--silent` | No prompts. Skips the PAM step unless `--pam` is also given. |
-| `--pam` | Enable fingerprint authentication (via `pam-auth-update` / `authselect`) without asking. |
+| `--pam` | Enable fingerprint authentication (via `pam-auth-update` / `authselect`) without asking. On Debian/Ubuntu this installs the repo's `elan-fp-fprintd` profile (3 tries, 15 s timeout). |
 | `--no-pam` | Skip the PAM step entirely. |
 | `--uninstall` | Remove the udev rule, re-enable autosuspend, revert PAM. Packages are left installed. |
 | `--remove-prints` | With `--uninstall` only: also delete enrolled fingerprints (`/var/lib/fprint`). Asks for confirmation unless `--silent`. |
@@ -97,7 +97,12 @@ The installer:
 5. **Restarts fprintd** and verifies it sees the sensor.
 6. **Optionally enables PAM** fingerprint auth — only through each distro's safe
    tool (`pam-auth-update` or `authselect`). The installer **never edits files
-   under `/etc/pam.d/` by hand**.
+   under `/etc/pam.d/` by hand**. On Debian/Ubuntu it ships its own
+   `pam-auth-update` profile (`/usr/share/pam-configs/elan-fp-fprintd`) that
+   replaces the stock `fprintd` one: **3 fingerprint tries** with a 15 s
+   overall budget instead of the distro's single try / 10 s, so a misread
+   doesn't dump you straight to the password prompt. `--uninstall` removes
+   the profile again.
 
 ### Why a driver replacement? (stage 2)
 
@@ -139,11 +144,18 @@ finger enrolled, and stays off for everyone else:
 - **Disable system-wide:** `sudo ./install.sh --uninstall` reverts the PAM
   change (enrolled prints are kept unless you add `--remove-prints`).
 
+**Retries:** on Debian/Ubuntu the stock `fprintd` PAM profile allows a single
+fingerprint attempt (`max-tries=1 timeout=10`) before falling back to
+password. This repo ships a replacement profile with `max-tries=3 timeout=15`:
+up to three touches, and the 15-second overall budget (pam_fprintd's `timeout`
+caps the whole verification, not each try) keeps the password fallback prompt
+from being delayed too long when you give up.
+
 ## Supported distros
 
 | Distro | Packages | PAM |
 |--------|----------|-----|
-| Ubuntu / Debian | `fprintd`, `libpam-fprintd` (apt) | `pam-auth-update --enable fprintd` |
+| Ubuntu / Debian | `fprintd`, `libpam-fprintd` (apt) | Repo profile `elan-fp-fprintd` via `pam-auth-update` (3 tries) |
 | Fedora | `fprintd`, `fprintd-pam` (dnf) | `authselect enable-feature with-fingerprint` |
 | Arch | `fprintd` (pacman) | Manual — see below |
 | openSUSE | `fprintd`, `pam_fprintd` (zypper) | Manual |

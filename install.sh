@@ -8,6 +8,11 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
 RULE_NAME="60-elan-fp-autosuspend.rules"
 RULE_DEST="/etc/udev/rules.d/$RULE_NAME"
+# pam-auth-update profile shipped by this repo: identical to the distro
+# "fprintd" profile but with max-tries=3 timeout=15 (Debian/Ubuntu ship
+# max-tries=1 timeout=10, i.e. a single attempt before password fallback).
+PAM_PROFILE="elan-fp-fprintd"
+PAM_PROFILE_DEST="/usr/share/pam-configs/$PAM_PROFILE"
 
 usage() {
     cat <<'EOF'
@@ -104,8 +109,11 @@ prompt_yn() {
 
 enable_pam() {
     if command -v pam-auth-update >/dev/null 2>&1; then
-        run pam-auth-update --enable fprintd
-        echo "✔ PAM fingerprint authentication enabled (pam-auth-update)"
+        # Install our profile (Conflicts: fprintd, so pam-auth-update swaps
+        # the stock single-try profile out for ours). No /etc/pam.d hand-edits.
+        run cp "$SCRIPT_DIR/pam-configs/$PAM_PROFILE" "$PAM_PROFILE_DEST"
+        run pam-auth-update --enable "$PAM_PROFILE"
+        echo "✔ PAM fingerprint authentication enabled (pam-auth-update, 3 tries)"
     elif command -v authselect >/dev/null 2>&1; then
         run authselect enable-feature with-fingerprint
         echo "✔ PAM fingerprint authentication enabled (authselect)"
@@ -131,7 +139,8 @@ do_uninstall() {
     fi
 
     if command -v pam-auth-update >/dev/null 2>&1; then
-        run pam-auth-update --remove fprintd
+        run pam-auth-update --remove "$PAM_PROFILE" fprintd
+        run rm -f "$PAM_PROFILE_DEST"
         echo "✔ PAM fingerprint authentication disabled (pam-auth-update)"
     elif command -v authselect >/dev/null 2>&1; then
         run authselect disable-feature with-fingerprint
