@@ -24,8 +24,19 @@ probing of fw 8.00:
   the device is re-enumerated.
 - **A `read_sensor_status` (`0x40 0x13`) read before every `get_image`**: the
   status read arms a fresh exposure; without it frames are stale and never
-  react to the finger. 150 ms between polls gives the exposure time to
-  integrate.
-- **Lift debounce**: fw 8.00 interleaves a background-level frame between good
-  exposures while the finger rests, so a touch only ends after 2 consecutive
-  low frames.
+  react to the finger. Polls run 60 ms apart (~85 ms real cycle), verified at
+  full finger contrast on fw 8.00.
+- **Lift debounce**: fw 8.00 interleaves background-level frames between good
+  exposures while the finger rests (the exposure needs ~100 ms to recharge, so
+  they can come in pairs at this poll rate); a touch only ends after 4
+  consecutive low frames.
+- **Background self-healing**: if the finger already rests on the sensor when
+  capture starts, the background reference is captured contaminated and would
+  mask every touch; it is re-taken when the polled mean falls well below it.
+- **Prompt cancellation**: between polls the capture machine sits in a delayed
+  transition with no USB transfer in flight, so the driver fails the machine
+  from its cancel hook; otherwise a cancelled verify (PAM timeout, GDM cancel)
+  never completed and fprintd kept the device claimed until restart.
+- **Low-latency verify**: verify/identify complete after 4 captured frames
+  without waiting for the finger to lift; enrollment keeps collecting up to 10
+  frames per touch for image diversity.

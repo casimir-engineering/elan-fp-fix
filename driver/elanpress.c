@@ -347,9 +347,6 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
       diff = elanpress_mean (self->pending_frame,
                              elanpress_frame_size (self)) -
              self->background_mean;
-      fp_dbg ("poll mean %ld (bg %ld, %d frames)",
-              self->background_mean + diff, self->background_mean,
-              self->num_frames);
 
       if (self->num_frames == 0)
         {
