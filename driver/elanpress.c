@@ -52,6 +52,10 @@ struct _FpiDeviceElanPress
 
   /* consecutive below-threshold polls while streaming (lift debounce) */
   int             off_polls;
+
+  /* running capture machine, for prompt cancellation between polls */
+  FpiSsm         *capture_ssm;
+  gboolean        in_delayed_wait;
 };
 
 G_DEFINE_TYPE (FpiDeviceElanPress, fpi_device_elanpress, FP_TYPE_DEVICE);
@@ -268,12 +272,24 @@ elanpress_frame_cb (FpiUsbTransfer *transfer, FpDevice *dev,
   fpi_ssm_next_state (transfer->ssm);
 }
 
+/* schedule the next poll; tracked so elanpress_cancel can interrupt the
+ * wait (no USB transfer is in flight during it, so the action cancellable
+ * alone would leave the machine spinning and the action never completing) */
+static void
+elanpress_poll_delay (FpiDeviceElanPress *self, FpiSsm *ssm, int state)
+{
+  self->in_delayed_wait = TRUE;
+  fpi_ssm_jump_to_state_delayed (ssm, state, ELANPRESS_POLL_INTERVAL_MS);
+}
+
 static void
 capture_run_state (FpiSsm *ssm, FpDevice *dev)
 {
   FpiDeviceElanPress *self = FPI_DEVICE_ELANPRESS (dev);
   gsize frame_bytes = elanpress_frame_size (self) * 2;
   long diff;
+
+  self->in_delayed_wait = FALSE;
 
   switch (fpi_ssm_get_cur_state (ssm))
     {
@@ -313,8 +329,7 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
           if (diff > ELANPRESS_FINGER_OFF_DELTA)
             {
               /* previous touch still on the sensor */
-              fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_CLEAR_STATUS_SEND,
-                                             ELANPRESS_POLL_INTERVAL_MS);
+              elanpress_poll_delay (self, ssm, CAPTURE_CLEAR_STATUS_SEND);
               break;
             }
         }
@@ -339,7 +354,19 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
       if (self->num_frames == 0)
         {
           /* waiting for the finger to land */
-          if (diff > ELANPRESS_FINGER_ON_DELTA)
+          if (diff < -ELANPRESS_FINGER_OFF_DELTA)
+            {
+              /* the mean fell well below the stored background: the
+               * background was captured with a finger already resting on
+               * the sensor (e.g. the user touched before the prompt).
+               * Re-take it, or the poisoned reference masks every touch. */
+              g_free (self->background);
+              self->background = g_steal_pointer (&self->pending_frame);
+              self->background_mean = elanpress_mean (self->background,
+                                                      elanpress_frame_size (self));
+              fp_dbg ("background re-taken, mean %ld", self->background_mean);
+            }
+          else if (diff > ELANPRESS_FINGER_ON_DELTA)
             {
               fp_dbg ("finger detected (mean +%ld)", diff);
               fpi_device_report_finger_status (dev,
@@ -348,14 +375,8 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
               self->frames = g_slist_prepend (self->frames,
                                               g_steal_pointer (&self->pending_frame));
               self->num_frames++;
-              fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_TOUCH_STATUS_SEND,
-                                             ELANPRESS_POLL_INTERVAL_MS);
             }
-          else
-            {
-              fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_TOUCH_STATUS_SEND,
-                                             ELANPRESS_POLL_INTERVAL_MS);
-            }
+          elanpress_poll_delay (self, ssm, CAPTURE_TOUCH_STATUS_SEND);
           break;
         }
 
@@ -368,8 +389,7 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
           self->off_polls++;
           if (self->off_polls < ELANPRESS_FINGER_OFF_POLLS)
             {
-              fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_TOUCH_STATUS_SEND,
-                                             ELANPRESS_POLL_INTERVAL_MS);
+              elanpress_poll_delay (self, ssm, CAPTURE_TOUCH_STATUS_SEND);
               break;
             }
 
@@ -384,8 +404,7 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
               fp_dbg ("finger lifted after only %d frames, retrying",
                       self->num_frames);
               elanpress_reset_capture (self);
-              fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_TOUCH_STATUS_SEND,
-                                             ELANPRESS_POLL_INTERVAL_MS);
+              elanpress_poll_delay (self, ssm, CAPTURE_TOUCH_STATUS_SEND);
             }
           break;
         }
@@ -397,8 +416,7 @@ capture_run_state (FpiSsm *ssm, FpDevice *dev)
       if (self->num_frames >= ELANPRESS_MAX_FRAMES)
         fpi_ssm_mark_completed (ssm);
       else
-        fpi_ssm_jump_to_state_delayed (ssm, CAPTURE_TOUCH_STATUS_SEND,
-                                       ELANPRESS_POLL_INTERVAL_MS);
+        elanpress_poll_delay (self, ssm, CAPTURE_TOUCH_STATUS_SEND);
       break;
     }
 }
@@ -410,6 +428,8 @@ elanpress_capture_touch (FpiDeviceElanPress *self, FpiSsmCompletedCallback done)
 
   elanpress_reset_capture (self);
   ssm = fpi_ssm_new (FP_DEVICE (self), capture_run_state, CAPTURE_NUM_STATES);
+  self->capture_ssm = ssm;
+  self->in_delayed_wait = FALSE;
   fpi_ssm_start (ssm, done);
 }
 
@@ -437,6 +457,7 @@ elanpress_enroll_touch_done (FpiSsm *ssm, FpDevice *dev, GError *error)
   FpPrint *print = NULL;
   guint8 *image;
 
+  self->capture_ssm = NULL;
   fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NONE);
 
   if (error)
@@ -497,6 +518,7 @@ elanpress_match_touch_done (FpiSsm *ssm, FpDevice *dev, GError *error)
   FpiDeviceAction action = fpi_device_get_current_action (dev);
   g_autofree guint8 *probe = NULL;
 
+  self->capture_ssm = NULL;
   fpi_device_report_finger_status (dev, FP_FINGER_STATUS_NONE);
   elanpress_send_stop (dev);
 
@@ -691,8 +713,24 @@ elanpress_close (FpDevice *dev)
 static void
 elanpress_cancel (FpDevice *dev)
 {
-  /* in-flight transfers are submitted with the action's cancellable, so
-   * they fail on their own; nothing device-side to do here */
+  FpiDeviceElanPress *self = FPI_DEVICE_ELANPRESS (dev);
+
+  /* In-flight USB transfers are submitted with the action's cancellable,
+   * so they fail on their own.  But between polls the capture machine sits
+   * in a delayed state transition that nothing would interrupt: the next
+   * poll would then be submitted with a fresh cancellable and the machine
+   * would spin forever, so the cancelled action never completed and fprintd
+   * kept the device claimed until restart.  Fail the machine here. */
+  if (self->capture_ssm && self->in_delayed_wait)
+    {
+      FpiSsm *ssm = g_steal_pointer (&self->capture_ssm);
+
+      self->in_delayed_wait = FALSE;
+      fpi_ssm_cancel_delayed_state_change (ssm);
+      fpi_ssm_mark_failed (ssm,
+                           g_error_new (G_IO_ERROR, G_IO_ERROR_CANCELLED,
+                                        "Capture cancelled"));
+    }
 }
 
 static void
