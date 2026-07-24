@@ -33,7 +33,8 @@ github.com/filip-rs/libfprint branch `elanpress` (pinned commit 34fc394,
 security-reviewed 2026-07-19: memory-safe, no malicious code, FAR
 unbenchmarked) — a dedicated press driver using ZNCC image correlation.
 Installed to /usr/local (ldconfig shadowing), manifest-tracked, fully
-revertible; built in Docker matching the host distro when available.
+revertible; built on the host by default (build deps auto-installed via the
+distro package manager), or in Docker with `--docker`.
 
 Out of scope: Windows-style power-button pre-boot capture (vendor firmware,
 undocumented, no libfprint support — researched 2026-07-19).
