@@ -11,10 +11,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: shellcheck
-        run: shellcheck -S style install.sh diagnose.sh install-driver.sh
+        run: shellcheck -S style install.sh setup-system.sh build-driver.sh diagnose.sh
 
       - name: bash syntax check
-        run: bash -n install.sh diagnose.sh install-driver.sh
+        run: bash -n install.sh setup-system.sh build-driver.sh diagnose.sh
 
       - name: scripts are executable
-        run: test -x install.sh && test -x diagnose.sh && test -x install-driver.sh
+        run: test -x install.sh && test -x setup-system.sh && test -x build-driver.sh && test -x diagnose.sh

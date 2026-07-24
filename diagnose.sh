@@ -154,7 +154,7 @@ main() {
         if [[ "$(<"$sensor/power/control")" == "on" ]]; then
             echo "✔ power/control is on (autosuspend disabled)"
         else
-            echo "✖ power/control is not on (autosuspend active) — run: sudo ./install.sh"
+            echo "✖ power/control is not on (autosuspend active) — run: sudo ./setup-system.sh"
         fi
     else
         echo "! power/control state unknown (sensor not found or not readable)"
@@ -173,9 +173,9 @@ main() {
 
     section "5. fprintd view"
     if command -v fprintd-list >/dev/null 2>&1; then
-        fprintd-list "$USER" 2>&1 || echo "! fprintd-list failed — is fprintd running? (run: sudo ./install.sh)"
+        fprintd-list "$USER" 2>&1 || echo "! fprintd-list failed — is fprintd running? (run: sudo ./setup-system.sh)"
     else
-        echo "✖ fprintd-list not found — install fprintd (run: sudo ./install.sh)"
+        echo "✖ fprintd-list not found — install fprintd (run: sudo ./setup-system.sh)"
     fi
 
     section "6. Recent logs"
@@ -195,7 +195,7 @@ main() {
         section "7. Verify loop"
         local enrolled=1
         if ! command -v fprintd-verify >/dev/null 2>&1; then
-            echo "✖ fprintd-verify not found — install fprintd (run: sudo ./install.sh)"
+            echo "✖ fprintd-verify not found — install fprintd (run: sudo ./setup-system.sh)"
             enrolled=0
         elif fprintd-list "$USER" 2>&1 | grep -qi "no fingers enrolled"; then
             echo "✖ enroll first: fprintd-enroll"

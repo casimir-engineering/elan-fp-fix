@@ -9,19 +9,29 @@ press-type fingerprint sensor — the power-button sensor on many ASUS laptops
 ```sh
 git clone https://github.com/casimir-engineering/elan-fp-fix.git
 cd elan-fp-fix
-sudo ./install.sh --silent --pam && sudo ./install-driver.sh
+sudo ./install.sh
 fprintd-enroll    # press (don't swipe) the sensor repeatedly
 ```
 
 This is the full setup: USB autosuspend fix + `fprintd` + fingerprint
 authentication for login/sudo (3 tries before password fallback) + the patched
-`elanpress` driver built and installed to `/usr/local`. Both installers are
-idempotent — safe to re-run. Run `sudo ./install.sh` without flags to be asked
-about PAM interactively, or with `--no-pam` to leave authentication alone.
+`elanpress` driver built and installed to `/usr/local`. `install.sh` is a thin
+wrapper that runs `setup-system.sh --silent --pam` followed by
+`build-driver.sh`; run those two directly for selective install/uninstall
+(e.g. skipping PAM or building in Docker). Everything is idempotent — safe to
+re-run.
 
 ## Options
 
-### `install.sh` — stage 1: autosuspend fix, fprintd, PAM
+### `install.sh` — full setup in one command
+
+| Flag | Description |
+|------|-------------|
+| *(none)* | Run `setup-system.sh --silent --pam`, then `build-driver.sh`. |
+| `--uninstall` | Run `build-driver.sh --uninstall`, then `setup-system.sh --uninstall`. Packages and enrolled prints are kept. |
+| `--help` | Show usage. |
+
+### `setup-system.sh` — system setup: autosuspend fix, fprintd, PAM
 
 | Flag | Description |
 |------|-------------|
@@ -34,7 +44,7 @@ about PAM interactively, or with `--no-pam` to leave authentication alone.
 | `--any-elan` | Match any Elan (`04f3`) USB device whose product string contains "Fingerprint", not just `0c6e`. |
 | `--help` | Show usage. |
 
-### `install-driver.sh` — stage 2: patched elanpress driver
+### `build-driver.sh` — driver: patched elanpress libfprint
 
 | Flag | Description |
 |------|-------------|
@@ -50,19 +60,19 @@ about PAM interactively, or with `--no-pam` to leave authentication alone.
 | *(none)* | Write a report (system info, sensor power state, versions, fprintd logs) to `./elan-fp-report-<hostname>-<timestamp>.txt`. |
 | `--verify-loop N` | Run `fprintd-verify` N times and report the success rate (needs an enrolled finger). |
 | `--reenum` | Re-enumerate the sensor (USB unbind/bind) to recover it when it stops reacting to touches. Needs root. |
-| `--any-elan` | Same detection widening as install.sh. |
+| `--any-elan` | Same detection widening as setup-system.sh. |
 | `--help` | Show usage. |
 
 ## What it does
 
-1. **`install.sh`** disables USB autosuspend for the sensor (udev rule +
+1. **`setup-system.sh`** disables USB autosuspend for the sensor (udev rule +
    immediate sysfs write — the stock driver misbehaves when the device sleeps
    mid-session), installs `fprintd`, and optionally enables PAM fingerprint
    auth — only through `pam-auth-update` or `authselect`, never by hand-editing
    `/etc/pam.d/`. On Debian/Ubuntu it ships a profile with `max-tries=3
    timeout=15` instead of the stock single try, so one misread doesn't dump you
    to the password prompt.
-2. **`install-driver.sh`** fixes matching. Upstream libfprint drives `0c6e` as
+2. **`build-driver.sh`** fixes matching. Upstream libfprint drives `0c6e` as
    a legacy *swipe* sensor and has never matched a finger on it
    ([upstream #401](https://gitlab.freedesktop.org/libfprint/libfprint/-/issues/401),
    known since 2021). This builds libfprint at a pinned, security-reviewed
@@ -113,9 +123,10 @@ sudo ./diagnose.sh --reenum     # recover a sensor that stopped reacting
 ## Uninstall
 
 ```sh
-sudo ./install-driver.sh --uninstall           # restore the distro libfprint
-sudo ./install.sh --uninstall                  # udev + PAM revert, keep prints
-sudo ./install.sh --uninstall --remove-prints  # delete enrolled prints too
+sudo ./install.sh --uninstall                       # everything: driver + udev + PAM revert, keep prints
+sudo ./build-driver.sh --uninstall                  # just the driver: restore the distro libfprint
+sudo ./setup-system.sh --uninstall                  # just system setup: udev + PAM revert, keep prints
+sudo ./setup-system.sh --uninstall --remove-prints  # also delete enrolled prints
 ```
 
 ## License

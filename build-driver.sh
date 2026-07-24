@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# elan-fp-fix stage 2: build and install a libfprint with the "elanpress"
+# elan-fp-fix driver installer: build and install a libfprint with the "elanpress"
 # driver, which actually works for the Elan 04f3:0c6e press-type sensor.
 #
 # The stock libfprint drives 0c6e as a swipe sensor and has never matched a
@@ -25,7 +25,7 @@ WORKDIR="${ELAN_FP_WORKDIR:-/tmp/elan-fp-fix-build}"
 
 usage() {
     cat <<'EOF'
-Usage: sudo ./install-driver.sh [OPTIONS]
+Usage: sudo ./build-driver.sh [OPTIONS]
 
 Build and install a patched libfprint (elanpress driver) for the Elan
 04f3:0c6e press-type fingerprint sensor. Builds on the host, installing the
@@ -67,7 +67,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$EUID" -ne 0 ]]; then
-    echo "✖ must run as root (try: sudo ./install-driver.sh)" >&2
+    echo "✖ must run as root (try: sudo ./build-driver.sh)" >&2
     exit 1
 fi
 

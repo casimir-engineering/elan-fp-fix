@@ -18,13 +18,15 @@ no PPAs).
 
 ## Scope
 
-Two stages (stage 2 added 2026-07-19 after live testing):
+Two parts (the driver part added 2026-07-19 after live testing), fronted by a
+thin `install.sh` wrapper that runs both (`setup-system.sh --silent --pam`,
+then `build-driver.sh`):
 
-**Stage 1 — `install.sh`:** udev autosuspend fix + fprintd/PAM setup, one
-command. This fixed device flakiness (overheat-disable, mid-enroll
+**System setup — `setup-system.sh`:** udev autosuspend fix + fprintd/PAM
+setup, one command. This fixed device flakiness (overheat-disable, mid-enroll
 disconnects) but NOT matching.
 
-**Stage 2 — `install-driver.sh`:** live testing showed verify always returns
+**Driver — `build-driver.sh`:** live testing showed verify always returns
 no-match (0/3). Root cause (confirmed against upstream sources and issues
 #401/#732/#814): 0c6e is a press-type imaging sensor misassigned to the
 `elan` swipe driver since 2021; it has never matched for anyone; it is not
@@ -41,7 +43,10 @@ undocumented, no libfprint support — researched 2026-07-19).
 
 ## Components
 
-- **`install.sh`** — the one command:
+- **`install.sh`** — thin wrapper: `setup-system.sh --silent --pam` then
+  `build-driver.sh`; `--uninstall` reverses both.
+
+- **`setup-system.sh`** — the system-setup command:
   1. Detect sensor (`04f3:0c6e` in sysfs; `--any-elan` override for sibling PIDs)
   2. Install `fprintd`/`libfprint` via detected package manager (apt/dnf/pacman/zypper)
   3. Install udev rule, force `power/control=on` immediately (no reboot)

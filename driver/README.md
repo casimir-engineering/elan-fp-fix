@@ -5,7 +5,7 @@
 (upstream commit `34fc394`, LGPL-2.1+, © Filip Spanne; modifications © the
 elan-fp-fix contributors under the same license).
 
-`install-driver.sh` fetches the pinned upstream commit and copies these two
+`build-driver.sh` fetches the pinned upstream commit and copies these two
 files over `libfprint/drivers/` before building, so the rest of libfprint is
 byte-identical to the reviewed upstream tree.
 
