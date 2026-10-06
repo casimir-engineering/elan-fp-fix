@@ -10,16 +10,19 @@ press-type fingerprint sensor — the power-button sensor on many ASUS laptops
 git clone https://github.com/casimir-engineering/elan-fp-fix.git
 cd elan-fp-fix
 sudo ./install.sh
-fprintd-enroll    # press (don't swipe) the sensor repeatedly
+fprintd-enroll    # press repeatedly, varying placement/angle between stages
 ```
 
 This is the full setup: USB autosuspend fix + `fprintd` + fingerprint
 authentication for login/sudo (3 tries before password fallback) + the patched
 `elanpress` driver built and installed to `/usr/local`. `install.sh` is a thin
-wrapper that runs `setup-system.sh --silent --pam` followed by
-`build-driver.sh`; run those two directly for selective install/uninstall
-(e.g. skipping PAM or building in Docker). Everything is idempotent — safe to
-re-run.
+wrapper that runs `setup-system.sh --silent --no-pam`, then
+`build-driver.sh`, then `setup-system.sh --silent --pam-only`. PAM is enabled
+only after the systemd daemon reports the press sensor and maps the patched
+library. A failed build or activation exits non-zero before enabling PAM;
+existing PAM settings are left as they were. Run the scripts directly for
+selective install/uninstall (e.g. skipping PAM or building in Docker).
+Installs and uninstalls are idempotent — safe to re-run.
 
 ## Options
 
@@ -27,7 +30,7 @@ re-run.
 
 | Flag | Description |
 |------|-------------|
-| *(none)* | Run `setup-system.sh --silent --pam`, then `build-driver.sh`. |
+| *(none)* | Set up the system without PAM, build and verify the driver, then enable PAM. |
 | `--uninstall` | Run `build-driver.sh --uninstall`, then `setup-system.sh --uninstall`. Packages and enrolled prints are kept. |
 | `--help` | Show usage. |
 
@@ -37,6 +40,7 @@ re-run.
 |------|-------------|
 | `--silent` | No prompts. Skips the PAM step unless `--pam` is also given. |
 | `--pam` | Enable fingerprint authentication without asking (`pam-auth-update` / `authselect`; on Debian/Ubuntu installs this repo's `elan-fp-fprintd` profile: 3 tries, 15 s budget). |
+| `--pam-only` | Ensure PAM packages and enable fingerprint auth without repeating device setup. |
 | `--no-pam` | Never touch PAM configuration. |
 | `--uninstall` | Remove the udev rule, restore autosuspend, revert PAM. Packages stay installed. |
 | `--remove-prints` | With `--uninstall` only: also delete enrolled fingerprints (`/var/lib/fprint`). |
@@ -57,7 +61,7 @@ re-run.
 
 | Flag | Description |
 |------|-------------|
-| *(none)* | Write a report (system info, sensor power state, versions, fprintd logs) to `./elan-fp-report-<hostname>-<timestamp>.txt`. |
+| *(none)* | Write a report (system info, sensor power state, versions, runtime library mapping, loader cache, SELinux labels/AVCs, fprintd logs) to `./elan-fp-report-<hostname>-<timestamp>.txt`. |
 | `--verify-loop N` | Run `fprintd-verify` N times and report the success rate (needs an enrolled finger). |
 | `--reenum` | Re-enumerate the sensor (USB unbind/bind) to recover it when it stops reacting to touches. Needs root. |
 | `--any-elan` | Same detection widening as setup-system.sh. |
@@ -81,8 +85,14 @@ re-run.
    overlays this repo's patches for firmware 8.00 sensors (finger detection,
    cancellation, sub-second verify — see [`driver/README.md`](driver/README.md)
    for the protocol details), and installs to `/usr/local`, shadowing the
-   distro library via `ldconfig`. Distro packages stay untouched and keep
-   updating; `--uninstall` restores stock behavior exactly.
+   distro library via `ldconfig`. The installer selects the host's native
+   library directory (`/usr/local/lib64` on Fedora x86_64, Debian's multiarch
+   directory on Debian/Ubuntu, `/usr/local/lib` on Arch) and manages
+   `/etc/ld.so.conf.d/00-elan-fp-fix.conf` so the local library is found first.
+   Staging labels/xattrs are not copied from `/tmp`; when available,
+   `restorecon` restores policy labels on installed files, the library directory,
+   and newly created directories. Distro packages stay untouched and keep updating;
+   `--uninstall` removes the manifest-owned files and loader configuration.
 
 Fingerprint auth activates per-user: it's on for anyone with an enrolled
 finger (GNOME Settings → Users, or `fprintd-enroll`) and off otherwise
@@ -119,6 +129,18 @@ an unknown package manager the installer names the packages and continues.
 ./diagnose.sh --verify-loop 10  # measure reliability
 sudo ./diagnose.sh --reenum     # recover a sensor that stopped reacting
 ```
+
+Host build output is kept in the printed `/tmp/elan-fp-fix-build.*/build.log`
+path, with the failing step and final log lines shown on failure. If activation
+fails, the installer prints loader and SELinux diagnostics and exits non-zero
+(the files remain installed for diagnosis/uninstall). The daemon's
+`/proc/<MainPID>/maps` is the authoritative check: shell `ldd` can resolve the
+patched library even when SELinux prevents the systemd service from loading it.
+Run `sudo ./diagnose.sh` if process maps or audit logs require root.
+
+For enrollment, lift your finger between stages and vary its placement, angle,
+and coverage. A slight roll or shift can help this narrow sensor capture
+additional detail; it is still a press sensor, not a full swipe sensor.
 
 ## Uninstall
 

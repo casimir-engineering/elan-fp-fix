@@ -25,6 +25,8 @@ Options:
   --silent         Non-interactive. Skips the PAM prompt (PAM is NOT
                    enabled unless --pam is also given).
   --pam            Enable PAM fingerprint authentication without asking.
+  --pam-only       Only ensure PAM packages and enable fingerprint auth.
+                   Used by install.sh after driver activation succeeds.
   --no-pam         Never touch PAM configuration.
   --uninstall      Remove the udev rule, restore autosuspend, and revert
                    the PAM change. Packages are left installed.
@@ -43,6 +45,7 @@ EOF
 
 SILENT=false
 PAM=false
+PAM_ONLY=false
 NO_PAM=false
 UNINSTALL=false
 REMOVE_PRINTS=false
@@ -53,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --silent) SILENT=true ;;
         --pam) PAM=true ;;
+        --pam-only) PAM=true; PAM_ONLY=true ;;
         --no-pam) NO_PAM=true ;;
         --uninstall) UNINSTALL=true ;;
         --remove-prints) REMOVE_PRINTS=true ;;
@@ -73,6 +77,10 @@ done
 
 if "$REMOVE_PRINTS" && ! "$UNINSTALL"; then
     echo "✖ --remove-prints requires --uninstall" >&2
+    exit 1
+fi
+if "$PAM_ONLY" && { "$NO_PAM" || "$UNINSTALL"; }; then
+    echo "✖ --pam-only cannot be combined with --no-pam or --uninstall" >&2
     exit 1
 fi
 
@@ -164,7 +172,9 @@ do_uninstall() {
 }
 
 install_packages() {
-    if command -v fprintd-enroll >/dev/null 2>&1; then
+    # An existing fprintd client does not prove its separate PAM module is
+    # installed (notably fprintd-pam on Fedora).
+    if ! "$PAM" && command -v fprintd-enroll >/dev/null 2>&1; then
         echo "✔ fprintd already installed"
         return 0
     fi
@@ -189,6 +199,12 @@ main() {
 
     if "$UNINSTALL"; then
         do_uninstall
+        return 0
+    fi
+
+    if "$PAM_ONLY"; then
+        install_packages
+        enable_pam
         return 0
     fi
 
