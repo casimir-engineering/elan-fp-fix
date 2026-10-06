@@ -3,3 +3,4 @@
 PROGRESS.md
 driver-wip/
 elan-fp-report-*.txt
+__pycache__/

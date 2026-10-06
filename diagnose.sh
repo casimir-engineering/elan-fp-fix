@@ -4,6 +4,9 @@
 set -euo pipefail
 
 UDEV_RULE="/etc/udev/rules.d/60-elan-fp-autosuspend.rules"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/driver-runtime.sh
+source "$SCRIPT_DIR/lib/driver-runtime.sh"
 
 usage() {
     cat <<'EOF'
@@ -177,6 +180,10 @@ main() {
     else
         echo "✖ fprintd-list not found — install fprintd (run: sudo ./setup-system.sh)"
     fi
+
+    # Query first so a D-Bus-activated service is running when reading its maps.
+    section "5a. Library loading and SELinux"
+    driver_runtime_report
 
     section "6. Recent logs"
     if command -v journalctl >/dev/null 2>&1; then
